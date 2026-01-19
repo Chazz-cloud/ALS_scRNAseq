@@ -1,106 +1,252 @@
-#########################################################################################################
+################################################################################
 # Title: Intrathecal antigen presentation drives clonal expansion of T cells in ALS
 # Data: 10X 5' scRNA-Sequencing and immune profiling
 # Creator: zhenzhen chen, zhenzhen.chen@ki.se
 # Date last modified: 2026-01-19
-# Content: data processing steps for Fig. 1,2,3,4,5, S1,2
-#########################################################################################################
+################################################################################
+set.seed(1234)
+## ----------------------------- 0) Setup ---------------------------------- ##
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(dplyr)
+  library(ggplot2)
+  library(patchwork)
+  library(harmony)
+  library(broom)
+  library(scRepertoire)
+})
 
-#########################################################################################################
-# 1. Data cleaning and preprocessing for scRNA-Seq
-library(Seurat)
-library(harmony)
-library(DoubletFinder)
+# Paths
+base_dir <- "/…/Data anaysis/ "
+setwd(base_dir)
+rds_dir   <- file.path(base_dir)             
+out_dir   <- file.path(base_dir, "output")   
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
-setwd("./")
-m1 <- readRDS("data.RDS")
-data <- NULL
+# Key params in one place
+params <- list(
+  nfeatures = 3000,
+  dims      = 1:50,
+  harmony_group_vars = c("orig.ident", "TISSUE"),
+  cluster_res = c(0, 0.5, 1.0, 2.0, 3.0)
+)
 
-for(j in 1:nrow(m1)){
-  x <- Read10X(m1$Dir[j])
-  x <- CreateSeuratObject(x, min.cells = 3, min.features = 200)
-  x <- PercentageFeatureSet(x, pattern = "^MT-")
-  x <- x(x, subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < 7.5)
-  x$GROUP <- m1$GROUP[j]
-  x$TISSUE <- m1$TISSUE[j]
-  x$SAMPLE_ID <- m1$SAMPLE_ID[j]
-  x$CELL <- row.names(x@meta.data)
-  x$BATCH <- m1$BATCH[j]
-  data[[j]] <- x
+## ----------------------- 1) Sample sheet (metadata) ----------------------- ##
+# Create a clean sample sheet to drive loading + merging.
+# REQUIRED columns:
+#   - add_id: used as add.cell.id in merge()
+#   - rds_file: RDS filename
+#   - SAMPLE_ID / GROUP / TISSUE: desired metadata (will be enforced)
+
+# Option A (recommended): maintain a CSV in repo
+# sample_sheet <- read.csv("sample_sheet.csv", stringsAsFactors = FALSE)
+
+# Option B: build in script (example skeleton; fill as needed)
+sample_sheet <- tibble::tribble(
+  ~add_id, ~rds_file,                         ~SAMPLE_ID, ~GROUP,            ~TISSUE,
+  "P1C",   "ALS_P1C_run_DoubletFinder.RDS",    "P1",      "ALS",             "CSF",
+  "P2C",   "ALS_P2C_run_DoubletFinder.RDS",    "P2",      "ALS",             "CSF"
+  # ... add all samples here ...
+)
+
+stopifnot(all(file.exists(file.path(rds_dir, sample_sheet$rds_file))))
+
+## -------------------------- 2) Helper functions -------------------------- ##
+read_one_seurat <- function(rds_path, add_id, meta_row) {
+  obj <- readRDS(rds_path)
+
+  # enforce key metadata fields (overwrite if missing/inconsistent)
+  obj$add_id    <- add_id
+  obj$SAMPLE_ID <- meta_row$SAMPLE_ID
+  obj$GROUP     <- meta_row$GROUP
+  obj$TISSUE    <- meta_row$TISSUE
+
+  return(obj)
 }
 
-data <- merge(data[1], data[c(2:length(data))])
+merge_seurat_list <- function(obj_list, add_ids) {
+  stopifnot(length(obj_list) == length(add_ids))
+  merged <- merge(obj_list[[1]], y = obj_list[-1], add.cell.id = add_ids)
+  return(merged)
+}
+
+save_pdf <- function(filename, plot, width = 12, height = 8) {
+  pdf(file.path(out_dir, filename), width = width, height = height)
+  print(plot)
+  dev.off()
+}
+
+## --------------------- 3) Load all samples + merge ------------------------ ##
+message("Loading objects...")
+obj_list <- vector("list", nrow(sample_sheet))
+
+for (i in seq_len(nrow(sample_sheet))) {
+  rds_path <- file.path(rds_dir, sample_sheet$rds_file[i])
+  obj_list[[i]] <- read_one_seurat(
+    rds_path = rds_path,
+    add_id   = sample_sheet$add_id[i],
+    meta_row = sample_sheet[i, ]
+  )
+}
+
+message("Merging objects...")
+data_merged <- merge_seurat_list(obj_list, sample_sheet$add_id)
+
+saveRDS(data_merged, file.path(out_dir, "Data_merged.RDS"))
+rm(obj_list); gc()
+
+## --------------------- 4) QC summaries + remove doublets ------------------ ##
+data <- readRDS(file.path(out_dir, "Data_merged.RDS"))
+
+# Cell counts per sample x tissue (for sanity check)
+tab <- table(data$orig.ident, data$TISSUE)
+write.csv(tab, file.path(out_dir, "cell_counts_per_sample.csv"))
+
+# QC plots
+save_pdf("QC_nFeature_nCount.pdf",
+         VlnPlot(data, features = c("nFeature_RNA", "nCount_RNA"), ncol = 1),
+         width = 10, height = 10)
+
+save_pdf("QC_percent_mt_hb_rp.pdf",
+         VlnPlot(data, features = c("percent_mt", "percent_hb", "percent_rp"), ncol = 1),
+         width = 10, height = 10)
+
+# Remove predicted doublets (keep singlets)
+if ("DF.name" %in% colnames(data@meta.data)) {
+  Idents(data) <- "DF.name"
+  data <- subset(data, subset = DF.name == "Singlet")
+} else {
+  warning("DF.name not found in metadata; skipping DoubletFinder filtering.")
+}
+
+saveRDS(data, file.path(out_dir, "data_merged_singlets.RDS"))
+
+## ------------------- 5) Standard Seurat preprocessing --------------------- ##
+data <- readRDS(file.path(out_dir, "data_merged_singlets.RDS"))
+
+# For Seurat v5: merge layers before normalization if needed
+if ("layers" %in% slotNames(data[["RNA"]])) {
+  data <- JoinLayers(data)
+}
+
 data <- NormalizeData(data)
-data <- FindVariableFeatures(data)
+data <- FindVariableFeatures(data, selection.method = "vst", nfeatures = params$nfeatures)
 data <- ScaleData(data, features = VariableFeatures(data))
 data <- RunPCA(data, features = VariableFeatures(data))
-data <- RunHarmony(data, "BATCH")
-data <- FindNeighbors(data, reduction = "harmony", dims = 1:30)
-data <- FindClusters(data, resolution = 3.5)
-degs <- FindAllMarkers(data, min.pct = 0.25, logfc.threshold = 0.25)
-degs <- degs[which(degs$avg_log2FC > 0 & degs$p.adjust < 0.05),]
-saveRDS(data, "data1.RDS")
-saveRDS(degs, "degs.RDS")
-#########################################################################################################
-# 2. Post-manual annotation processing
-data <- readRDS("data1.RDS")
-annot <- read.table("ALS_Annotations.txt", sep = "\t", header = T)
-data$CELL_TYPE <- annot[match(data$seurat_clusters, annot$CLUSTER),"CELL_TYPE"]
-data$CELL_TYPE_LEVEL1 <- annot[match(data$seurat_clusters, annot$CLUSTER),"CELL_TYPE_LEVEL1"]
-homotypic.prop <- modelHomotypic(data$CELL_TYPE)
-nExp_poi <- round(0.075*nrow(data@meta.data))
-nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
-data <- doubletFinder_v3(data, PCs = 1:30, pN = 0.25, pK = 0.09, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
-data <- doubletFinder_v3(data, PCs = 1:30, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj, reuse.pANN = "pANN_0.25_0.09_2165", sct = FALSE)
-data <- subset(data, subset = DF.classifications_0.25_0.09_2165 == "Singlet")
-data <- RunTSNE(data, reduction = "harmony", dims = 1:30)
-data <- RunUMAP(data, reduction = "harmony", dims = 1:30)
-saveRDS(data, "data2.RDS")
 
-#########################################################################################################
-# 3. Data cleaning and processing for scImmune profiling
-library(scRepertoire)
-data <- readRDS("data2.RDS")
-m2 <- readRDS("ALS_Meta_scImmune.RDS")
+save_pdf("ElbowPlot.pdf", ElbowPlot(data, ndims = max(params$dims)), width = 8, height = 6)
 
-imm_data <- NULL
-for(i in 1:nrow(m2)){
-  x <- read.csv(m2$FILE[i], header = T)
-  contig_list[[i]] <- x
+# Non-integrated visualization (optional)
+data <- RunUMAP(data, reduction = "pca", dims = params$dims)
+data <- RunTSNE(data, reduction = "pca", dims = params$dims)
+
+p_umap_raw <- DimPlot(data, reduction = "umap", group.by = "orig.ident", raster = FALSE) + NoLegend()
+p_tsne_raw <- DimPlot(data, reduction = "tsne", group.by = "orig.ident", raster = FALSE) + NoLegend()
+save_pdf("before_integration_umap_tsne.pdf", p_umap_raw + p_tsne_raw, width = 14, height = 6)
+
+saveRDS(data, file.path(out_dir, "data_before_harmony.RDS"))
+
+## ----------------------- 6) Harmony integration --------------------------- ##
+data <- readRDS(file.path(out_dir, "data_before_harmony.RDS"))
+
+data <- RunHarmony(
+  object = data,
+  group.by.vars = params$harmony_group_vars,
+  reduction = "pca",
+  dims.use = params$dims,
+  assay.use = "RNA"
+)
+
+data <- FindNeighbors(data, reduction = "harmony", dims = params$dims)
+data <- FindClusters(data, resolution = params$cluster_res, verbose = TRUE)
+
+data <- RunUMAP(data, reduction = "harmony", dims = params$dims)
+data <- RunTSNE(data, reduction = "harmony", dims = params$dims)
+
+p_umap <- DimPlot(data, reduction = "umap", group.by = "orig.ident", raster = FALSE) + NoLegend()
+p_tsne <- DimPlot(data, reduction = "tsne", group.by = "orig.ident", raster = FALSE) + NoLegend()
+save_pdf("after_integration_umap_tsne.pdf", p_umap + p_tsne, width = 14, height = 6)
+
+p_split <- DimPlot(data, reduction = "tsne", group.by = "seurat_clusters",
+                   split.by = "TISSUE", label = TRUE, repel = TRUE, raster = FALSE) + NoLegend()
+save_pdf("after_integration_split_TISSUE.pdf", p_split, width = 18, height = 10)
+
+saveRDS(data, file.path(out_dir, "data_after_harmony.RDS"))
+
+## ------------------ 7) Cluster stats (optional but useful) ---------------- ##
+data <- readRDS(file.path(out_dir, "data_after_harmony.RDS"))
+
+# cluster size at active identity
+cell_num  <- table(Idents(data))
+cell_freq <- round(prop.table(cell_num), 4) * 100
+cell_sum  <- rbind(freq_pct = cell_freq, n_cells = cell_num)
+write.csv(cell_sum, file.path(out_dir, "cell_counts_freq_after_integrated.csv"))
+
+## -------------------- 8) Manual annotation from table --------------------- ##
+# Annotation table should map cluster -> labels
+# e.g., a CSV with columns: CLUSTER, CELL_TYPE, CELL_TYPE_LEVEL1, CELL_TYPE_LEVEL2, ...
+annot_path <- file.path(base_dir, "Anotations.csv")
+if (file.exists(annot_path)) {
+  annot <- read.csv(annot_path, sep = ";", header = TRUE, stringsAsFactors = FALSE)
+
+  data$CELL_TYPE         <- annot[match(data$seurat_clusters, annot$CLUSTER), "CELL_TYPE"]
+  data$CELL_TYPE_LEVEL1  <- annot[match(data$seurat_clusters, annot$CLUSTER), "CELL_TYPE_LEVEL1"]
+  data$CELL_TYPE_LEVEL2  <- annot[match(data$seurat_clusters, annot$CLUSTER), "CELL_TYPE_LEVEL2"]
+  data$CELL_TYPE_LEVEL3  <- annot[match(data$seurat_clusters, annot$CLUSTER), "CELL_TYPE_LEVEL3"]
+
+  p_ann <- DimPlot(data, reduction = "umap", group.by = "CELL_TYPE",
+                   label = TRUE, repel = TRUE, raster = FALSE) + NoLegend()
+  save_pdf("manual_annotation_umap.pdf", p_ann, width = 14, height = 7)
+
+  saveRDS(data, file.path(out_dir, "data_after_harmony_annotated.RDS"))
+} else {
+  warning("Annotation file not found: ", annot_path)
 }
 
-names(contig_list) <- m2$SAMPLE_ID
+## ------------------------ 9) TCR integration (optional) ------------------- ##
+# This part assumes you already prepared contig_list_combined.RDS
+tcr_path <- file.path(base_dir, "contig_list_combined.RDS")
+if (file.exists(tcr_path)) {
+  data <- readRDS(file.path(out_dir, "data_after_harmony_annotated.RDS"))
 
-tab <- combineTCR(contig_list, 
-                  samples = names(contig_list), 
-                  ID = m2[match(names(contig_list), m2$SAMPLE_ID),"GROUP"], cells ="T-AB")
-tab <- addVariable(tab, name = "GROUP",
-                   variables = m2[match(names(contig_list), m2$SAMPLE_ID),"GROUP"])
-tab <- addVariable(tab, name = "TISSUE", 
-                   variables = m2[match(names(contig_list), m2$SAMPLE_ID),"TISSUE"])
+  contig_list <- readRDS(tcr_path)
 
-data$OID <- row.names(data@meta.data)
-data$NID <- paste(data$SAMPLE_ID,data$GROUP,data$CELL, sep = "_")
-row.names(data@meta.data) <- data$NID
-colnames(data@assays$RNA@counts) <- data$NID
-data <- combineExpression(tab, data, cloneCall="gene+nt",  proportion = FALSE,
-                          clonecall_types=c(Single=1, Small=5, Medium=20, Large=100, Hyperexpanded=500))
-slot(data, "meta.data")$cloneType <- factor(slot(data, "meta.data")$cloneType, 
-                                            levels = c("Hyperexpanded (100 < X <= 500)", 
-                                                       "Large (20 < X <= 100)", 
-                                                       "Medium (5 < X <= 20)", 
-                                                       "Small (1 < X <= 5)", 
-                                                       "Single (0 < X <= 1)", NA))
-row.names(data@meta.data) <- data$OID
-colnames(data@assays$RNA@counts) <- data$OID
-saveRDS(data, "data3.RDS")
+  combined <- combineTCR(
+    contig_list,
+    samples = sample_sheet$add_id,
+    removeNA = FALSE,
+    removeMulti = FALSE,
+    filterMulti = FALSE
+  )
 
-#########################################################################################################
-# 4. Detectable TCR only
-data$TCR <- ifelse(!is.na(data$`TCR_gene+nt_ClonalType`), "TCR", "NOT_DETECTED/NON-TCR")
-tcr_data <- subset(data, subset = TCR == "TCR")
-tcr_data <- RunHarmony(tcr_data, "BATCH")
-tcr_data <- RunTSNE(tcr_data, reduction = "harmony", dims = 1:30)
-saveRDS(tcr_data, "tcr_data.RDS")
+  # Attach GROUP information in the same order as sample IDs
+  combined <- addVariable(
+    combined,
+    variable.name = "GROUP",
+    variables = sample_sheet$GROUP
+  )
 
-#########################################################################################################
+  data <- combineExpression(
+    combined, data,
+    cloneCall = "strict",
+    chain = "both",
+    proportion = FALSE,
+    cloneSize = c(Single = 1, Small = 5, Medium = 20, Large = 100, Hyperexpanded = 1000)
+  )
+
+  # Standardize cloneType factor levels for plotting
+  data$cloneType <- factor(
+    data$cloneSize,
+    levels = c("Hyperexpanded (100 < X <= 1000)",
+               "Large (20 < X <= 100)",
+               "Medium (5 < X <= 20)",
+               "Small (1 < X <= 5)",
+               "Single (0 < X <= 1)")
+  )
+
+  saveRDS(data, file.path(out_dir, "data_after_harmony_annotated_TCR.RDS"))
+} else {
+  message("No TCR contig list found; skipping TCR integration.")
+}
+
+message("Done. Outputs saved to: ", out_dir)
