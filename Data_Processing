@@ -22,7 +22,7 @@ for(j in 1:nrow(m1)){
   x <- PercentageFeatureSet(x, pattern = "^MT-")
   x <- x(x, subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < 7.5)
   x$GROUP <- m1$GROUP[j]
-  x$SUBGROUP <- m1$SUBGROUP[j]
+  x$TISSUE <- m1$TISSUE[j]
   x$SAMPLE_ID <- m1$SAMPLE_ID[j]
   x$CELL <- row.names(x@meta.data)
   x$BATCH <- m1$BATCH[j]
@@ -54,6 +54,7 @@ data <- doubletFinder_v3(data, PCs = 1:30, pN = 0.25, pK = 0.09, nExp = nExp_poi
 data <- doubletFinder_v3(data, PCs = 1:30, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj, reuse.pANN = "pANN_0.25_0.09_2165", sct = FALSE)
 data <- subset(data, subset = DF.classifications_0.25_0.09_2165 == "Singlet")
 data <- RunTSNE(data, reduction = "harmony", dims = 1:30)
+data <- RunUMAP(data, reduction = "harmony", dims = 1:30)
 saveRDS(data, "data2.RDS")
 
 #########################################################################################################
@@ -75,8 +76,8 @@ tab <- combineTCR(contig_list,
                   ID = m2[match(names(contig_list), m2$SAMPLE_ID),"GROUP"], cells ="T-AB")
 tab <- addVariable(tab, name = "GROUP",
                    variables = m2[match(names(contig_list), m2$SAMPLE_ID),"GROUP"])
-tab <- addVariable(tab, name = "SUBGROUP", 
-                   variables = m2[match(names(contig_list), m2$SAMPLE_ID),"SUBGROUP"])
+tab <- addVariable(tab, name = "TISSUE", 
+                   variables = m2[match(names(contig_list), m2$SAMPLE_ID),"TISSUE"])
 
 data$OID <- row.names(data@meta.data)
 data$NID <- paste(data$SAMPLE_ID,data$GROUP,data$CELL, sep = "_")
