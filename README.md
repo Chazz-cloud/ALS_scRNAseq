@@ -1,6 +1,6 @@
 # ALS_scRNAseq
 
-scRNA-seq figure codes for: Intrathecal antigen presentation drives clonal expansion of T cells in ALS
+scRNA-seq figure codes for: Compartmentalized T cell immunity links intrathecal antigen presentation to CMV-associated ALS progression
 
 If you are using the repository, please cite:
 
