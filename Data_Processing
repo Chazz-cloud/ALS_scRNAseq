@@ -2,10 +2,10 @@
 # Title: Intrathecal antigen presentation drives clonal expansion of T cells in ALS
 # Data: 10X 5' scRNA-Sequencing and immune profiling
 # Creator: zhenzhen chen, zhenzhen.chen@ki.se
-# Date last modified: 2026-01-19
+# Date last modified: 2026-06-25
 ################################################################################
 set.seed(1234)
-## ----------------------------- 0) Setup ---------------------------------- ##
+## Setup##
 suppressPackageStartupMessages({
   library(Seurat)
   library(dplyr)
@@ -31,7 +31,7 @@ params <- list(
   cluster_res = c(0, 0.5, 1.0, 2.0, 3.0)
 )
 
-## ----------------------- 1) Sample sheet (metadata) ----------------------- ##
+## -Sample sheet (metadata)  ##
 # Create a clean sample sheet to drive loading + merging.
 # REQUIRED columns:
 #   - add_id: used as add.cell.id in merge()
@@ -41,17 +41,9 @@ params <- list(
 # Option A (recommended): maintain a CSV in repo
 # sample_sheet <- read.csv("sample_sheet.csv", stringsAsFactors = FALSE)
 
-# Option B: build in script (example skeleton; fill as needed)
-sample_sheet <- tibble::tribble(
-  ~add_id, ~rds_file,                         ~SAMPLE_ID, ~GROUP,            ~TISSUE,
-  "P1C",   "ALS_P1C_run_DoubletFinder.RDS",    "P1",      "ALS",             "CSF",
-  "P2C",   "ALS_P2C_run_DoubletFinder.RDS",    "P2",      "ALS",             "CSF"
-  # ... add all samples here ...
-)
-
 stopifnot(all(file.exists(file.path(rds_dir, sample_sheet$rds_file))))
 
-## -------------------------- 2) Helper functions -------------------------- ##
+##  Helper functions ##
 read_one_seurat <- function(rds_path, add_id, meta_row) {
   obj <- readRDS(rds_path)
 
@@ -76,7 +68,7 @@ save_pdf <- function(filename, plot, width = 12, height = 8) {
   dev.off()
 }
 
-## --------------------- 3) Load all samples + merge ------------------------ ##
+##  Load all samples + merge  ##
 message("Loading objects...")
 obj_list <- vector("list", nrow(sample_sheet))
 
@@ -95,7 +87,7 @@ data_merged <- merge_seurat_list(obj_list, sample_sheet$add_id)
 saveRDS(data_merged, file.path(out_dir, "Data_merged.RDS"))
 rm(obj_list); gc()
 
-## --------------------- 4) QC summaries + remove doublets ------------------ ##
+##  QC summaries + remove doublets  ##
 data <- readRDS(file.path(out_dir, "Data_merged.RDS"))
 
 # Cell counts per sample x tissue (for sanity check)
@@ -121,7 +113,7 @@ if ("DF.name" %in% colnames(data@meta.data)) {
 
 saveRDS(data, file.path(out_dir, "data_merged_singlets.RDS"))
 
-## ------------------- 5) Standard Seurat preprocessing --------------------- ##
+## Standard Seurat preprocessing ##
 data <- readRDS(file.path(out_dir, "data_merged_singlets.RDS"))
 
 # For Seurat v5: merge layers before normalization if needed
@@ -146,7 +138,7 @@ save_pdf("before_integration_umap_tsne.pdf", p_umap_raw + p_tsne_raw, width = 14
 
 saveRDS(data, file.path(out_dir, "data_before_harmony.RDS"))
 
-## ----------------------- 6) Harmony integration --------------------------- ##
+## Harmony integration ##
 data <- readRDS(file.path(out_dir, "data_before_harmony.RDS"))
 
 data <- RunHarmony(
@@ -173,7 +165,7 @@ save_pdf("after_integration_split_TISSUE.pdf", p_split, width = 18, height = 10)
 
 saveRDS(data, file.path(out_dir, "data_after_harmony.RDS"))
 
-## ------------------ 7) Cluster stats (optional but useful) ---------------- ##
+##  Cluster stats (optional but useful) ##
 data <- readRDS(file.path(out_dir, "data_after_harmony.RDS"))
 
 # cluster size at active identity
@@ -182,17 +174,14 @@ cell_freq <- round(prop.table(cell_num), 4) * 100
 cell_sum  <- rbind(freq_pct = cell_freq, n_cells = cell_num)
 write.csv(cell_sum, file.path(out_dir, "cell_counts_freq_after_integrated.csv"))
 
-## -------------------- 8) Manual annotation from table --------------------- ##
+##  Manual annotation from table  ##
 # Annotation table should map cluster -> labels
-# e.g., a CSV with columns: CLUSTER, CELL_TYPE, CELL_TYPE_LEVEL1, CELL_TYPE_LEVEL2, ...
+# e.g., a CSV with columns: CLUSTER, CELL_TYPE
 annot_path <- file.path(base_dir, "Anotations.csv")
 if (file.exists(annot_path)) {
   annot <- read.csv(annot_path, sep = ";", header = TRUE, stringsAsFactors = FALSE)
 
   data$CELL_TYPE         <- annot[match(data$seurat_clusters, annot$CLUSTER), "CELL_TYPE"]
-  data$CELL_TYPE_LEVEL1  <- annot[match(data$seurat_clusters, annot$CLUSTER), "CELL_TYPE_LEVEL1"]
-  data$CELL_TYPE_LEVEL2  <- annot[match(data$seurat_clusters, annot$CLUSTER), "CELL_TYPE_LEVEL2"]
-  data$CELL_TYPE_LEVEL3  <- annot[match(data$seurat_clusters, annot$CLUSTER), "CELL_TYPE_LEVEL3"]
 
   p_ann <- DimPlot(data, reduction = "umap", group.by = "CELL_TYPE",
                    label = TRUE, repel = TRUE, raster = FALSE) + NoLegend()
@@ -203,7 +192,7 @@ if (file.exists(annot_path)) {
   warning("Annotation file not found: ", annot_path)
 }
 
-## ------------------------ 9) TCR integration (optional) ------------------- ##
+##  TCR integration (optional)  ##
 # This part assumes you already prepared contig_list_combined.RDS
 tcr_path <- file.path(base_dir, "contig_list_combined.RDS")
 if (file.exists(tcr_path)) {
