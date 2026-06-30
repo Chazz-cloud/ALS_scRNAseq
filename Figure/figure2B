@@ -1,0 +1,69 @@
+# number of cells per clonotype (ALS vs Healthy_control)
+# Load required libraries
+library(Seurat)
+library(ggplot2)
+library(ggpubr)
+library(dplyr)
+library("readxl")
+
+data<- readRDS("data_ALSvsCtl_CSF.RDS")
+set.seed(1234)
+
+# Load your data
+metadata <- data@meta.data
+table(data@meta.data$GROUP)
+
+metadata <- metadata %>%
+  group_by(CTstrict) %>%
+  mutate(clonotype = paste0("clonotype", cur_group_id())) %>%
+  ungroup()
+  
+##########################################
+control_sample <- metadata %>%
+  dplyr::filter(GROUP == "Healthy_Control")
+
+# For als
+als_sample <- metadata %>%
+  dplyr::filter(GROUP == "ALS")
+
+# Combine the two downsampled datasets into one
+all_als_control <- bind_rows(control_sample, als_sample)
+
+# Step 1: Prepare Data
+# Count the number of cells per clonotype for each sampleType
+clonotype_counts <- all_als_control %>%
+  group_by(GROUP, clonotype) %>%
+  summarise(num_cells = n()) %>%
+  ungroup()
+
+# Step 2: Aggregate clonotype information
+clonotype_summary <- clonotype_counts %>%
+  group_by(GROUP, num_cells) %>%
+  summarise(num_clonotypes = n())
+
+# Step 3: Convert to log2 scale
+clonotype_summary <- clonotype_summary %>%
+  mutate(log2_num_clonotypes = log2(num_clonotypes),
+         log2_num_cells = log2(num_cells))
+
+# Step 5: Perform Wilcoxon test
+control_data <- clonotype_summary %>% dplyr::filter(GROUP == "Healthy_Control") %>% pull(log2_num_clonotypes)
+als_data <- clonotype_summary %>% dplyr::filter(GROUP == "ALS") %>% pull(log2_num_clonotypes)
+p_value <- wilcox.test(control_data, als_data)$p.value
+
+
+ggplot(clonotype_summary, aes(x = log2_num_cells, y = log2_num_clonotypes, fill = GROUP)) +
+  geom_point(size = 4, shape = 21, color = "black") +  # Points with black outline
+  scale_fill_manual(values = c("#F2C45F","#80AE9A")) + # Fill color mapping
+  geom_vline(xintercept = 1, linetype = "dashed", color = "black") +
+  labs(
+    x = "log2(number of cells per clonotype)", 
+    y = "log2(number of clonotypes)"
+  ) +
+  annotate("text", x = 4, y = 12, label = paste("p =", format(p_value, scientific = TRUE))) +
+  scale_x_continuous(breaks = seq(2, max(clonotype_summary$log2_num_cells, na.rm = TRUE), by = 2)) +
+  scale_y_continuous(breaks = seq(2, max(clonotype_summary$log2_num_clonotypes, na.rm = TRUE), by = 2)) +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+
