@@ -1,0 +1,145 @@
+library(Seurat)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(ggplot2)
+
+data<- readRDS("data_ALSvsCtl_CSF.RDS")
+data<- subset(data,GROUP=="ALS")
+
+# Extract metadata
+meta <- data@meta.data %>%
+  rownames_to_column("cell_barcode") %>%
+  filter(
+    TISSUE == "CSF",
+    !is.na(SAMPLE_ID),
+    !is.na(renamed_clusters),
+    !is.na(CTstrict),
+    CTstrict != ""
+  )
+
+# Calculate clone size within each patient + cell type
+meta_expanded <- meta %>%
+  group_by(SAMPLE_ID, renamed_clusters, CTstrict) %>%
+  mutate(clone_size_celltype = n()) %>%
+  ungroup() %>%
+  mutate(expanded_cell = clone_size_celltype > 1)
+
+# Calculate percentage expanded cells per patient and cell type
+heatmap_df <- meta_expanded %>%
+  group_by(SAMPLE_ID, PR_T0, SUB_GROUP, renamed_clusters) %>%
+  summarise(
+    total_cells = n(),
+    expanded_cells = sum(expanded_cell),
+    percent_expanded = expanded_cells / total_cells * 100,
+    .groups = "drop"
+  )
+
+# Keep all patient-celltype combinations
+heatmap_df_full <- heatmap_df %>%
+  complete(
+    SAMPLE_ID,
+    renamed_clusters,
+    fill = list(
+      total_cells = 0,
+      expanded_cells = 0,
+      percent_expanded = NA
+    )
+  ) 
+
+# Order patients by progression rate
+
+patient_order <- c(
+  "P1C",
+  "P2C",
+  "P4C",
+  "P5C",
+  "P6C",
+  "P7C",
+  "P8C",
+  "P9C",
+  "P10C",
+  "P11C",
+  "P13C",
+  "P14C",
+  "P16C",
+  "P17C",
+  "P21C",
+  "P22C",
+  "SA",
+  "SC",
+  "SD",
+  "SE"
+)
+
+heatmap_df_full <- heatmap_df_full %>%
+  mutate(
+    SAMPLE_ID = factor(
+      SAMPLE_ID,
+      levels = patient_order
+    )
+  )
+
+
+cell_type_order <- c(
+  "Th1",
+  "Th2",
+  "Th17",
+  "CD4+CTL",
+  "CD4+Treg",
+  "CD4+TCM",
+  "CD4+TEM",
+  "CD4+TRM",
+  "MAIT",
+  "CD8+TCL",
+  "CD8+TRM",
+  "CD8+TEM",
+  "CD8+TCM",
+  "CD8+Treg",
+  "Proliferating T cells",
+  "DP Tcell",
+  "gd Tcells",
+  "CD3+Macrophage",
+  "CD3+Monocyte",
+  "CD3+DC",
+  "CD3+B"
+)
+
+heatmap_df_full <- heatmap_df_full %>%
+  mutate(
+    renamed_clusters = factor(
+      renamed_clusters,
+      levels = cell_type_order
+    )
+  )
+
+
+heatmap_df_full <- heatmap_df_full %>%
+  mutate(
+    renamed_clusters = recode(
+      renamed_clusters,
+      "CD3+Microglia" = "CD3+Macrophage"
+    )
+  )
+
+# Plot heatmap
+ggplot(
+  heatmap_df_full,
+  aes(x = SAMPLE_ID,
+      y = renamed_clusters,
+      fill = percent_expanded)
+) +
+  geom_tile(color = "grey85") +
+  scale_fill_gradient(
+    low = "white",
+    high = "blue",
+    na.value = "white"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
