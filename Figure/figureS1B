@@ -1,0 +1,478 @@
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(tibble)
+
+############################################################
+## 0. Load object
+############################################################
+
+DefaultAssay(data) <- "RNA"
+
+# Check existing UMAP
+Reductions(data)
+
+DimPlot(
+  data,
+  reduction = "umap",
+  group.by = "renamed_clusters",
+  label = TRUE
+)
+
+############################################################
+## 1. Rename status, but do not remove doublets
+############################################################
+
+data$status2 <- dplyr::recode(
+  data$status,
+  "Singlet" = "Complex_in_remaining_cells",
+  "Excluded_doublet" = "Complex_in_excluded_doublets_cells"
+)
+
+table(data$status2)
+
+############################################################
+## 2. Define module genes
+############################################################
+
+module_list <- list(
+  
+  Immunological_Synapse = c(
+    "ITGAL", "ITGB2", "ICAM1", "ICAM2", "CD2", "CD58",
+    "SELPLG", "CD44", "CXCR4", "CCR7", "FYB1",
+    "SKAP1", "SKAP2", "FERMT3", "TLN1", "VCL"
+  ),
+  
+  Early_TCR_Signaling = c(
+    "CD3D", "CD3E", "CD3G", "TRBC1", "TRBC2",
+    "LCK", "FYN", "ZAP70", "LAT", "LCP2",
+    "PTPRC", "PLCG1", "VAV1", "ITK", "PRKCQ"
+  ),
+  
+  Immediate_Early_Activation = c(
+    "FOS", "FOSB", "JUN", "JUNB", "JUND",
+    "EGR1", "EGR2", "EGR3",
+    "NR4A1", "NR4A2", "NR4A3",
+    "DUSP1", "DUSP2"
+  ),
+  
+  Tcell_Activation_Costimulation = c(
+    "CD69", "IL2RA", "TNFRSF9", "ICOS",
+    "CD40LG", "TNFRSF4", "TIGIT",
+    "CTLA4", "PDCD1"
+  ),
+  
+  Cytoskeletal_Polarization = c(
+    "WAS", "WASF2", "ARPC1B", "ARPC2", "ARPC3",
+    "CFL1", "TLN1", "FERMT3", "PXN",
+    "DYNC1H1", "RAC1", "CDC42"
+  ),
+  
+  APC_Antigen_Presentation = c(
+    "HLA-DRA", "HLA-DRB1", "HLA-DPA1", "HLA-DPB1",
+    "HLA-DQA1", "HLA-DQB1", "CD74",
+    "CTSB", "CTSD", "CTSL", "IFI30",
+    "HLA-DMA", "HLA-DMB", "HLA-DOA", "HLA-DOB"
+  ),
+  
+  APC_Costimulation = c(
+    "CD80", "CD86", "CD40", "ICOSLG",
+    "CD70", "TNFSF9", "IL15RA"
+  ),
+  
+  IFN_Response = c(
+    "STAT1", "IRF1", "IFIT1", "IFIT3",
+    "MX1", "ISG15", "OAS1", "OAS2", "GBP1"
+  ),
+  
+  Effector_Function = c(
+    "GZMB", "GZMH", "PRF1", "NKG7", "CTSW",
+    "GNLY", "IFNG", "TNF", "IL21", "CCL4", "CCL5"
+  ),
+  
+  Exhaustion = c(
+    "PDCD1", "CTLA4", "LAG3", "HAVCR2",
+    "TIGIT", "TOX", "ENTPD1", "CXCL13"
+  ),
+  
+  Cell_Cycle = c(
+    "MKI67", "TOP2A", "UBE2C", "BIRC5",
+    "CENPF", "PCNA", "MCM2", "MCM3",
+    "MCM4", "TYMS"
+  )
+)
+
+############################################################
+## 3. Check genes present in object
+############################################################
+
+module_gene_check <- lapply(names(module_list), function(mod) {
+  
+  genes <- module_list[[mod]]
+  genes_present <- genes[genes %in% rownames(data)]
+  genes_missing <- genes[!genes %in% rownames(data)]
+  
+  data.frame(
+    module = mod,
+    n_input = length(genes),
+    n_present = length(genes_present),
+    n_missing = length(genes_missing),
+    missing_genes = paste(genes_missing, collapse = "; ")
+  )
+})
+
+module_gene_check <- bind_rows(module_gene_check)
+module_gene_check
+
+write.csv(
+  module_gene_check,
+  "module_gene_check.csv",
+  row.names = FALSE
+)
+
+############################################################
+## 4. Add module scores
+## This does not change UMAP or clustering
+############################################################
+
+for (mod in names(module_list)) {
+  
+  genes_use <- module_list[[mod]]
+  genes_use <- genes_use[genes_use %in% rownames(data)]
+  
+  if (length(genes_use) >= 3) {
+    
+    data <- AddModuleScore(
+      object = data,
+      features = list(genes_use),
+      name = paste0(mod, "_Score")
+    )
+    
+    old_name <- paste0(mod, "_Score1")
+    new_name <- paste0(mod, "_Score")
+    
+    colnames(data@meta.data)[
+      colnames(data@meta.data) == old_name
+    ] <- new_name
+  }
+}
+
+############################################################
+## 5. Define clonal expansion
+## Skip this if clone_size_sample and clonal_expansion already exist
+############################################################
+
+if (!all(c("clone_size_sample", "clonal_expansion") %in% colnames(data@meta.data))) {
+  
+  meta <- data@meta.data %>%
+    rownames_to_column("cell_id")
+  
+  clone_size_df <- meta %>%
+    filter(!is.na(CTstrict), CTstrict != "") %>%
+    count(SAMPLE_ID, CTstrict, name = "clone_size_sample_new")
+  
+  meta <- meta %>%
+    left_join(
+      clone_size_df,
+      by = c("SAMPLE_ID", "CTstrict")
+    ) %>%
+    mutate(
+      clone_size_sample = ifelse(
+        is.na(clone_size_sample_new),
+        0,
+        clone_size_sample_new
+      ),
+      clonal_expansion = ifelse(
+        clone_size_sample >= 2,
+        "Expanded",
+        "Non-expanded"
+      )
+    ) %>%
+    select(-clone_size_sample_new)
+  
+  data@meta.data <- meta %>%
+    column_to_rownames("cell_id")
+}
+
+data$clonal_expansion <- factor(
+  data$clonal_expansion,
+  levels = c("Non-expanded", "Expanded")
+)
+
+table(data$clonal_expansion)
+summary(data$clone_size_sample)
+
+############################################################
+## 6. Plot original UMAP by complex identity
+############################################################
+
+dir.create(
+  "existing_umap_module_score_outputs",
+  showWarnings = FALSE
+)
+
+p_identity <- DimPlot(
+  data,
+  reduction = "umap",
+  group.by = "renamed_clusters",
+  label = TRUE,
+  repel = TRUE,
+  pt.size = 0.3
+) +
+  theme_classic(base_size = 16) +
+  ggtitle("Complex identity on existing UMAP")
+
+p_identity
+
+ggsave(
+  "existing_umap_module_score_outputs/01_existing_umap_complex_identity.pdf",
+  p_identity,
+  width = 8,
+  height = 6
+)
+
+############################################################
+## 7. Plot original UMAP by status
+############################################################
+
+p_status <- DimPlot(
+  data,
+  reduction = "umap",
+  group.by = "status2",
+  pt.size = 0.3
+) +
+  theme_classic(base_size = 16) +
+  ggtitle("Complex status on existing UMAP")
+
+p_status
+
+ggsave(
+  "existing_umap_module_score_outputs/02_existing_umap_status.pdf",
+  p_status,
+  width = 8,
+  height = 6
+)
+
+############################################################
+## 8. Plot original UMAP by clonal expansion
+############################################################
+
+p_expansion <- DimPlot(
+  data,
+  reduction = "umap",
+  group.by = "clonal_expansion",
+  order = "Expanded",
+  pt.size = 0.3
+) +
+  theme_classic(base_size = 16) +
+  ggtitle("Clonal expansion on existing UMAP")
+
+p_expansion
+
+ggsave(
+  "existing_umap_module_score_outputs/03_existing_umap_clonal_expansion.pdf",
+  p_expansion,
+  width = 8,
+  height = 6
+)
+
+############################################################
+## 9. Plot original UMAP by clone size
+############################################################
+
+p_clone_size <- FeaturePlot(
+  data,
+  reduction = "umap",
+  features = "clone_size_sample",
+  order = TRUE,
+  pt.size = 0.3
+) +
+  theme_classic(base_size = 16) +
+  ggtitle("Clone size on existing UMAP")
+
+p_clone_size
+
+ggsave(
+  "existing_umap_module_score_outputs/04_existing_umap_clone_size.pdf",
+  p_clone_size,
+  width = 8,
+  height = 6
+)
+
+############################################################
+## 10. Plot each module score individually
+############################################################
+
+module_score_plots <- list()
+
+for (mod in names(module_list)) {
+  
+  score_col <- paste0(mod, "_Score")
+  
+  if (score_col %in% colnames(data@meta.data)) {
+    
+    p <- FeaturePlot(
+      data,
+      reduction = "umap",
+      features = score_col,
+      order = TRUE,
+      pt.size = 0.3
+    ) +
+      theme_classic(base_size = 16) +
+      ggtitle(mod)
+    
+    module_score_plots[[mod]] <- p
+    
+    print(p)
+    
+    ggsave(
+      filename = paste0(
+        "existing_umap_module_score_outputs/",
+        "ModuleScore_",
+        mod,
+        ".pdf"
+      ),
+      plot = p,
+      width = 8,
+      height = 6
+    )
+  }
+}
+
+############################################################
+## 11. Optional: split module scores by status
+############################################################
+
+for (mod in names(module_list)) {
+  
+  score_col <- paste0(mod, "_Score")
+  
+  if (score_col %in% colnames(data@meta.data)) {
+    
+    p <- FeaturePlot(
+      data,
+      reduction = "umap",
+      features = score_col,
+      split.by = "status2",
+      order = TRUE,
+      pt.size = 0.3
+    ) +
+      theme_classic(base_size = 16) +
+      ggtitle(paste0(mod, " split by status"))
+    
+    ggsave(
+      filename = paste0(
+        "existing_umap_module_score_outputs/",
+        "ModuleScore_",
+        mod,
+        "_split_by_status.pdf"
+      ),
+      plot = p,
+      width = 12,
+      height = 6
+    )
+  }
+}
+
+############################################################
+## 12. Quantify expansion by original Seurat cluster
+############################################################
+
+cluster_summary <- data@meta.data %>%
+  group_by(status2) %>%
+  summarise(
+    n_cells = n(),
+    n_expanded = sum(clonal_expansion == "Expanded"),
+    percent_expanded = 100 * n_expanded / n_cells,
+    mean_clone_size = mean(clone_size_sample),
+    median_clone_size = median(clone_size_sample),
+    .groups = "drop"
+  )
+
+cluster_summary
+
+
+p_cluster_expansion <- ggplot(
+  cluster_summary,
+  aes(
+    x = factor(renamed_clusters),
+    y = percent_expanded
+  )
+) +
+  geom_col() +
+  theme_bw(base_size = 14) +
+  labs(
+    x = "Original celltype",
+    y = "Expanded clonotypes (%)",
+    title = "Clonal expansion by original celltype"
+  )
+
+p_cluster_expansion
+
+ggsave(
+  "existing_umap_module_score_outputs/05_expansion_by_original_seurat_cluster.pdf",
+  p_cluster_expansion,
+  width = 8,
+  height = 6
+)
+
+############################################################
+## 13. Quantify module scores in expanded vs non-expanded cells
+############################################################
+
+score_cols <- paste0(names(module_list), "_Score")
+score_cols <- score_cols[score_cols %in% colnames(data@meta.data)]
+
+module_score_summary <- data@meta.data %>%
+  select(clonal_expansion, all_of(score_cols)) %>%
+  tidyr::pivot_longer(
+    cols = all_of(score_cols),
+    names_to = "module",
+    values_to = "score"
+  ) %>%
+  group_by(module, clonal_expansion) %>%
+  summarise(
+    n_cells = n(),
+    mean_score = mean(score, na.rm = TRUE),
+    median_score = median(score, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+module_score_summary
+
+############################################################
+## 14. Statistical comparison: module score in expanded vs non-expanded
+############################################################
+
+wilcox_results <- lapply(score_cols, function(score_col) {
+  
+  df <- data@meta.data %>%
+    select(clonal_expansion, all_of(score_col)) %>%
+    filter(!is.na(.data[[score_col]]))
+  
+  test <- wilcox.test(
+    df[[score_col]] ~ df$clonal_expansion
+  )
+  
+  data.frame(
+    module = score_col,
+    p_value = test$p.value,
+    mean_expanded = mean(
+      df[[score_col]][df$clonal_expansion == "Expanded"],
+      na.rm = TRUE
+    ),
+    mean_nonexpanded = mean(
+      df[[score_col]][df$clonal_expansion == "Non-expanded"],
+      na.rm = TRUE
+    )
+  )
+})
+
+wilcox_results_df <- bind_rows(wilcox_results) %>%
+  mutate(
+    p_adj_BH = p.adjust(p_value, method = "BH")
+  )
+
+wilcox_results_df
+
