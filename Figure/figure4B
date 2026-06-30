@@ -1,0 +1,399 @@
+# CD4 20 clonoselection ##################################################
+# second set
+ctstrict_keep <- c(
+  "TRAV12-1.TRAJ13.TRAC_TGTGTGGTGAATTCTGGGGGTTACCAGAAAGTTACCTTT_TRBV6-1.NA.TRBJ1-1.TRBC1_TGTGCCAGCAGTGACCAGGTGCACGCTGAAGCTTTCTTT",
+  "TRAV12-1.TRAJ22.TRAC_TGTGTGGTGAAAGTGGGATCGGGTTCTGCAAGGCAACTGACCTTT_TRBV7-6.NA.TRBJ2-5.TRBC2_TGTGCCAGCAGCTTGGGAGAGACCCAGTACTTC",
+  "TRAV12-3.TRAJ27.TRAC_TGTGCAATGAGCGCAGGAACCAATGCAGGCAAATCAACCTTT_TRBV18.TRBD1.TRBJ1-5.TRBC1_TGTGCCAGCTCACTCACAGGGGGCGATCAGCCCCAGCATTTT",
+  "TRAV13-2.TRAJ40.TRAC_TGTACAGAGAGTGGAGGTACCTCAGGAACCTACAAATACATCTTT_TRBV18.TRBD1.TRBJ1-5.TRBC1_TGTGCCAGCTCACCAGGGACAGGGGATAGCAATCAGCCCCAGCATTTT",
+  "TRAV17.TRAJ29.TRAC_TGTGCTACGGCCCGGAATTCAGGAAACACACCTCTTGTCTTT_TRBV2.NA.TRBJ2-1.TRBC2_TGTGCCATATCCGCAGGTGTCACTGCGACCAATGAGCAGTTCTTC",
+  "TRAV25.TRAJ34.TRAC_TGTGCAGGGCGGACCGACAAGCTCATCTTT_TRBV6-5.NA.TRBJ1-3.TRBC1_TGTGCCAGCAGTTATGCGGGGGCCCCTGGAAACACCATATATTTT",
+  "TRAV25.TRAJ37.TRAC_TGTGCAGGGAAGCCTAGCAACACAGGCAAACTAATCTTT_TRBV6-2.NA.TRBJ1-1.TRBC1_TGTGCCAGCAGTTACCAGGGGACCACTGAAGCTTTCTTT",
+  "TRAV25.TRAJ52.TRAC_TGTGCAGGGTCTCGCGCTGGTGGTACTAGCTATGGAAAGCTGACATTT_TRBV11-2.TRBD1.TRBJ2-6.TRBC2_TGTGCCAGCAGCCATATTGGAGGAGGGGGCTCTGGGGCCAACGTCCTGACTTTC",
+  "TRAV26-1.TRAJ10.TRAC_TGCATCGTCAGAGTCCATACGGGAGGAGGAAACAAACTCACCTTT_TRBV27.NA.TRBJ2-1.TRBC2_TGTGCCAGCCACGGCCTTTTTGCGGGAGAATACAATGAGCAGTTCTTC",
+  "TRAV26-1.TRAJ57.TRAC_TGCATCGTCAGAGTGCGGGAGCAGGGCGGATCTGAAAAGCTGGTCTTT_TRBV19.NA.TRBJ2-3.TRBC2_TGTGCCAGTAAGGGGGTCCCGGGACAGAAGCAGTATTTT",
+  "TRAV27.TRAJ29.TRAC_TGTGCAGGAGCGGAAGGAAACACACCTCTTGTCTTT_TRBV27.NA.TRBJ2-7.TRBC2_TGTGCCAGCAGTCGAAAAACAGGGGCCCTAGGCGAGCAGTACTTC",
+  "TRAV27.TRAJ3.TRAC_TGTGCAGGATGGGGGTACAGCAGTGCTTCCAAGATAATCTTT_TRBV19.NA.TRBJ1-5.TRBC1_TGTGCCAGTAGTATACCGGGGGGCAATCAGCCCCAGCATTTT",
+  "TRAV29/DV5.TRAJ21.TRAC_TGTGCAGCAAGCGAGGACAACTTCAACAAATTTTACTTT_TRBV7-9.TRBD1.TRBJ1-1.TRBC1_TGTGCCAGCAGCCCCTGGACAGGGGGCACTGAAGCTTTCTTT",
+  "TRAV35.TRAJ53.TRAC_TGTGCTGGGCAGCCAAATAGTGGAGGTAGCAACTATAAACTGACATTT_TRBV6-6.NA.TRBJ1-3.TRBC1_TGTGCCAGCAGCCCCACCGGGATCAGCAACACCATATATTTT",
+  "TRAV41.TRAJ42.TRAC_TGTGCTGTCAGCCAAGGAAATCTCATCTTT_TRBV19.NA.TRBJ2-1.TRBC2_TGTGCCAGTAGTGCCGGGACTAGCGCCTACAATGAGCAGTTCTTC",
+  "TRAV8-6.TRAJ11.TRAC_TGTGCTGTGAGCCCGAATTCAGGATACAGCACCCTCACCTTT_TRBV5-1.NA.TRBJ2-7.TRBC2_TGCGCCAGCAGCTTGCAGGGGGGTCCCGACGAGCAGTACTTC",
+  "TRAV8-6.TRAJ12.TRAC_TGTGCTGTGACCCCGATGGATAGCAGCTATAAATTGATCTTC_TRBV19.NA.TRBJ1-1.TRBC1_TGTGCCAGTAGAGGTAACACTGAAGCTTTCTTT",
+  "TRAV8-6.TRAJ27.TRAC_TGTGCTGTGAGTCGAACCAATGCAGGCAAATCAACCTTT_TRBV19.TRBD1.TRBJ1-1.TRBC1_TGTGCCAGTAGTACCTCGGACAGGGTCCCTTACACTGAAGCTTTCTTT",
+  "TRAV8-6.TRAJ40.TRAC_TGTGCTGTGAGGGGGATCTCAGGAACCTACAAATACATCTTT_TRBV19.NA.TRBJ1-1.TRBC1_TGTGCCACGGCAGGGAACACTGAAGCTTTCTTT",
+  "TRAV8-6.TRAJ42.TRAC_TGTGCTGTGAGGCCGGGAAGCCAAGGAAATCTCATCTTT_TRBV19.NA.TRBJ1-1.TRBC1_TGTGCCAGCAGGGGATCCACTGAAGCTTTCTTT"
+)
+
+
+data_shared_CD4_selected <- subset(
+  data_shared_CD4,
+  subset = CTstrict %in% ctstrict_keep
+)
+
+length(unique(data_shared_CD4_selected$CTstrict))
+ncol(data_shared_CD4_selected)
+
+###########################
+# =========================
+# 1. Define module gene sets
+# =========================
+
+module_list <- list(
+  Migration_trafficking = c("CXCR3", "CCR5", "CCR6", "CCR2", "SELL", "ITGB1"),
+  Tissue_residency = c("CD69", "ITGAE", "CXCR6", "ZNF683"),
+  Lipid_metabolism_CNS = c("FABP5", "APOE", "LPL", "PLIN2", "SREBF1"),
+  Senescence_terminal_diff = c("KLRG1", "ZEB2", "TBX21", "CX3CR1", "FGFBP2"),
+  Cytotoxic = c("GZMB", "PRF1", "GNLY", "NKG7", "GZMH")
+)
+
+
+# =========================
+# 2. Keep only genes existing in dataset
+# =========================
+
+module_list <- lapply(
+  module_list,
+  function(x) x[x %in% rownames(data_shared_CD4_selected)]
+)
+
+# check remaining genes
+module_list
+
+# =========================
+# 3. Add module scores
+# =========================
+
+for(i in names(module_list)){
+  
+  data_shared_CD4_selected <- AddModuleScore(
+    object = data_shared_CD4_selected,
+    features = list(module_list[[i]]),
+    name = paste0(i, "_Score")
+  )
+}
+
+# =========================
+# 4. Extract metadata
+# =========================
+
+score_df <- data_shared_CD4_selected@meta.data
+
+# =========================
+# 5. Compare CSF vs Blood
+# =========================
+# assumes:
+# TISSUE column contains "CSF" and "PBMC"
+# modify if your labels differ
+
+library(ggplot2)
+library(dplyr)
+library(rstatix)
+
+score_columns <- grep("_Score1$", colnames(score_df), value = TRUE)
+
+
+# =========================
+# 6: summary table
+# =========================
+
+summary_table <- bind_rows(
+  lapply(score_columns, function(score){
+    
+    test <- wilcox_test(
+      score_df,
+      as.formula(paste(score, "~ TISSUE"))
+    )
+    
+    medians <- score_df %>%
+      group_by(TISSUE) %>%
+      summarise(
+        median = median(.data[[score]], na.rm = TRUE)
+      )
+    
+    data.frame(
+      module = score,
+      p_value = test$p,
+      CSF_median = medians$median[medians$TISSUE == "CSF"],
+      Blood_median = medians$median[medians$TISSUE == "PBMC"]
+    )
+  })
+)
+
+summary_table
+
+
+# =========================
+# Create clonotype-level CSF vs PBMC module score table
+# =========================
+
+clone_scores <- score_df %>%
+  filter(
+    !is.na(CTstrict),
+    TISSUE %in% c("CSF", "PBMC")
+  ) %>%
+  group_by(CTstrict, TISSUE) %>%
+  summarise(
+    across(
+      all_of(score_columns),
+      ~ median(.x, na.rm = TRUE)
+    ),
+    n_cells = n(),
+    .groups = "drop"
+  )
+
+clone_scores_wide <- clone_scores %>%
+  pivot_wider(
+    names_from = TISSUE,
+    values_from = c(all_of(score_columns), n_cells),
+    names_sep = "_"
+  )
+
+for(score in score_columns){
+  clone_scores_wide[[paste0("Delta_", score)]] <-
+    clone_scores_wide[[paste0(score, "_CSF")]] -
+    clone_scores_wide[[paste0(score, "_PBMC")]]
+}
+
+# ==========================================
+# 7. Convert to long format for plotting
+# ==========================================
+
+delta_df <- clone_scores_wide %>%
+  
+  select(
+    CTstrict,
+    starts_with("Delta_")
+  ) %>%
+  
+  pivot_longer(
+    cols = starts_with("Delta_"),
+    names_to = "Module",
+    values_to = "Delta_score"
+  )
+
+# clean names
+delta_df$Module <- gsub("Delta_", "", delta_df$Module)
+delta_df$Module <- gsub("_Score1", "", delta_df$Module)
+
+# =========================================
+###############################################
+# ==========================================
+# Median Δ score for each module
+# ==========================================
+
+delta_summary <- delta_df %>%
+  
+  group_by(Module) %>%
+  
+  summarise(
+    median_delta = median(Delta_score, na.rm = TRUE),
+    mean_delta   = mean(Delta_score, na.rm = TRUE),
+    sd_delta     = sd(Delta_score, na.rm = TRUE),
+    n_clonotypes = n()
+  ) %>%
+  
+  arrange(median_delta)
+
+delta_summary
+
+# ==========================================
+# Paired Wilcoxon test for each module
+# ==========================================
+
+delta_stats <- delta_df %>%
+  
+  group_by(Module) %>%
+  
+  wilcox_test(
+    Delta_score ~ 1,
+    mu = 0
+  ) %>%
+  
+  select(Module, p)
+
+# merge with delta values
+delta_summary_final <- left_join(
+  delta_summary,
+  delta_stats,
+  by = "Module"
+)
+
+delta_summary_final
+####################### Plot #############################################
+
+# ==========================================
+# 1. Calculate module direction
+# ==========================================
+
+module_direction <- delta_df %>%
+  
+  group_by(Module) %>%
+  summarise(
+    median_delta = median(Delta_score, na.rm = TRUE)
+  ) %>%
+  
+  mutate(
+    Direction = case_when(
+      median_delta > 0 ~ "Higher in CSF",
+      median_delta < 0 ~ "Higher in Blood",
+      TRUE ~ "No median difference"
+    )
+  )
+
+
+
+# ==========================================
+# 2. Order modules by median Δ score
+# ==========================================
+
+pvals <- delta_df %>%
+  group_by(Module) %>%
+  wilcox_test(Delta_score ~ 1, mu = 0) %>%
+  mutate(
+    p_label = ifelse(
+      p < 0.001,
+      paste0("p=", format(p, scientific = TRUE, digits = 2)),
+      paste0("p=", signif(p, 2))
+    )
+  )
+
+pvals_y <- delta_df %>%
+  group_by(Module) %>%
+  summarise(
+    y = max(Delta_score, na.rm = TRUE) + 0.15,
+    .groups = "drop"
+  )
+
+pvals <- left_join(pvals, pvals_y, by = "Module")
+
+
+
+module_order <- module_direction %>%
+  arrange(desc(median_delta)) %>%
+  pull(Module)
+
+delta_df$Module <- factor(
+  delta_df$Module,
+  levels = module_order
+)
+
+pvals$Module <- factor(
+  pvals$Module,
+  levels = module_order
+)
+
+module_direction$Module <- factor(
+  module_direction$Module,
+  levels = module_order
+)
+
+
+#### 3. Plot cd4 ####
+
+ggplot(
+  delta_df,
+  aes(x = Module, y = Delta_score)
+) +
+  
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.7,
+    color = "red"
+  ) +
+  
+  # violin with directional color
+  geom_violin(
+    data = left_join(delta_df, module_direction, by = "Module"),
+    aes(fill = Direction),
+    trim = FALSE,
+    alpha = 0.4,
+    color = NA,
+    width =0.55,
+    scale = "width"
+  ) +
+  
+  geom_jitter(
+    width = 0.12,
+    height = 0,
+    size = 0.5,
+    alpha = 0.85,
+    color = "black"
+  ) +
+  
+  stat_summary(
+    fun = median,
+    geom = "crossbar",
+    width = 0.25,
+    linewidth = 0.5,
+    color = "black"
+  ) +
+  
+  geom_text(
+    data = pvals,
+    aes(
+      x = Module,
+      y = y,
+      label = p_label
+    ),
+    size = 5,
+    fontface = "bold"
+  ) +
+  
+  # manual colors
+  scale_fill_manual(
+    values = c(
+      "Higher in CSF" = "#E64B35",
+      "Higher in Blood" = "#3C5488",
+      "No median difference" = "grey80"
+    )
+  ) +
+  # scale_x_discrete(
+  #   expand = expansion(mult = c(0.2, 0.2))
+  # ) +
+  
+  coord_cartesian(
+    ylim = c(
+      min(delta_df$Delta_score, na.rm = TRUE) - 1.2,
+      max(pvals$y, na.rm = TRUE) + 0.8
+    )
+  ) +
+  
+  theme_classic(base_size = 16) +
+  
+  theme(
+    axis.text.x = element_text(
+      angle = 60,
+      hjust = 1,
+      size = 10,
+      face = "bold"
+    ),
+    
+    axis.text.y = element_text(
+      size = 12
+    ),
+    
+    axis.title = element_text(
+      size = 15,
+      face = "bold"
+    ),
+    
+    plot.title = element_text(
+      size = 18,
+      face = "bold",
+      hjust = 0.5
+    ),
+    
+    legend.title = element_blank()
+  ) +
+  
+  labs(
+    title = expression(
+      paste(Delta, " module score of shared CD4 clonotypes")
+    ),
+    
+    x = "Pathway / Module",
+    
+    y = expression(
+      paste(Delta, " score (CSF - PBMC)")
+    )
+  )
