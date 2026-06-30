@@ -1,0 +1,136 @@
+#########################################################################################################
+# perform the clonaloverlay betweeen csf and blood in 16 ALS
+########################################################################################################
+set.seed(1234)
+# 1. loading library
+library(Seurat)
+library(ggplot2)
+library(tidyverse)
+library(gridExtra)
+library(harmony)
+library(dplyr)
+library(monocle3)
+library(SeuratWrappers)
+library(ggridges)
+library(devtools)
+library(patchwork)
+library(sctransform)
+library(SeuratDisk)
+library(scRepertoire)
+library(clustree)
+library(scran)
+library(scSHC)
+library(pheatmap)
+library(Ragas)
+library(msigdbr)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+
+
+#########################################################################
+#### 1, all ALS, Healthy_control, and 2 followups in CSF ####
+data <- readRDS("data_CSFvsBlood.RDS")
+# Build clonotype-size table
+meta <- data@meta.data %>%
+  rownames_to_column("cell")
+
+# keep valid TCR cells only
+meta_tcr <- meta %>%
+  filter(
+    TCR == "TCR",
+    !is.na(CTstrict),
+    CTstrict != "",
+    !is.na(donor_id),
+    TISSUE %in% c("CSF", "PBMC")
+  )
+
+table(meta_tcr$TISSUE, useNA = "ifany")
+
+#Count clonotype size in each tissue
+clone_counts <- meta_tcr %>%
+  group_by(donor_id, CTstrict, TISSUE) %>%
+  summarise(clone_size = n(), .groups = "drop")
+
+#Convert to blood vs CSF wide table
+clone_scatter_df <- clone_counts %>%
+  tidyr::pivot_wider(
+    names_from = TISSUE,
+    values_from = clone_size,
+    values_fill = 0
+  ) %>%
+  dplyr::rename(
+    blood_size = PBMC,
+    csf_size = CSF
+  )
+
+# Keep only shared clonotypes
+
+clone_scatter_df <- clone_scatter_df %>%
+  group_by(donor_id) %>%
+  mutate(
+    total_size = blood_size + csf_size,
+    percentage = 100 * total_size / sum(total_size)
+  ) %>%
+  ungroup()
+
+
+clone_scatter_df <- clone_scatter_df %>%
+  mutate(
+    blood_size_plot = blood_size + 1,
+    csf_size_plot = csf_size + 1
+  )
+
+
+#color by clonotype type
+clone_scatter_df <- clone_scatter_df %>%
+  mutate(
+    clone_category = case_when(
+      blood_size > 0 & csf_size > 0 ~ "Shared",
+      blood_size > 0 & csf_size == 0 ~ "PBMC_only",
+      blood_size == 0 & csf_size > 0 ~ "CSF_only"
+    )
+  )
+
+
+svg("my_plot2.svg", width = 12, height = 10)
+ggplot(clone_scatter_df, aes(x = blood_size_plot, y = csf_size_plot)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted", color = "grey50") +
+  geom_point(aes(color = clone_category), size = 2.5, alpha = 0.8) +
+  annotate(
+    "rect",
+    xmin = 2, xmax = Inf,
+    ymin = 2, ymax = Inf,
+    fill = NA,
+    color = "black",
+    linetype = "dashed"
+  ) +
+  scale_color_manual(values = c(
+    "Shared" = "#1f78b4",
+    "PBMC_only" = "#33a02c",
+    "CSF_only" = "#e31a1c"
+  )) +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(
+    x = "Clonotype in blood (size)",
+    y = "Clonotype in CSF (size)",
+    color = "Clonotype type"
+  ) +
+  theme_classic()
+dev.off()
+
+
+
+#Define which points are inside the box
+in_box <- clone_scatter_df %>%
+  mutate(in_box = blood_size_plot >= 2 & csf_size_plot >= 2)
+#Calculate percentage
+#treats every clone equally
+percent_in_box <- mean(in_box$in_box) * 100
+percent_in_box
+
+
+
+# reflects biological dominance
+percent_in_box_weighted <- sum(in_box$percentage[in_box$in_box]) /
+  sum(in_box$percentage) * 100
