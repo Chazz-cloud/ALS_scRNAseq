@@ -1,0 +1,202 @@
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tibble)
+
+meta <- cd8_types@meta.data %>%
+  rownames_to_column("cell") %>%
+  filter(
+    TCR == "TCR",
+    !is.na(CTstrict),
+    CTstrict != ""
+  ) %>%
+  mutate(
+    donor_id = gsub("(C|P)$", "", SAMPLE_ID)
+  )
+
+
+clone_sharing <- meta %>%
+  group_by(donor_id, CTstrict) %>%
+  summarise(
+    tissues_present = n_distinct(TISSUE),
+    tissue_label = case_when(
+      tissues_present == 2 ~ "Shared",
+      TISSUE[1] == "PBMC" ~ "PBMC_only",
+      TISSUE[1] == "CSF" ~ "CSF_only"
+    ),
+    .groups = "drop"
+  )
+
+meta2 <- meta %>%
+  left_join(
+    clone_sharing,
+    by = c("donor_id", "CTstrict")
+  )
+
+meta2 <- meta2 %>%
+  mutate(
+    clonotype_group = case_when(
+      
+      tissue_label == "Shared" & TISSUE == "CSF" ~
+        "Shared clonotype (CSF cells)",
+      
+      tissue_label == "Shared" & TISSUE == "PBMC" ~
+        "Shared clonotype (PBMC cells)",
+      
+      tissue_label == "PBMC_only" ~
+        "PBMC-only clonotype",
+      
+      tissue_label == "CSF_only" ~
+        "CSF-only clonotype"
+    )
+  )
+
+meta2 <- meta2 %>%
+  mutate(
+    pseudotime = cd8_types$monocle3_pseudotime[cell]
+  ) %>%
+  filter(is.finite(pseudotime))
+
+summary(meta2$pseudotime)
+sum(is.na(meta2$pseudotime))
+
+
+
+meta2$clonotype_group <- factor(
+  meta2$clonotype_group,
+  levels = c(
+    "PBMC-only clonotype",
+    "CSF-only clonotype",
+    "Shared clonotype (CSF cells)",
+    "Shared clonotype (PBMC cells)"
+  )
+)
+
+p_clone_pt <- ggplot(
+  meta2,
+  aes(
+    x = clonotype_group,
+    y = pseudotime,
+    fill = clonotype_group
+  )
+) +
+  
+  geom_violin(
+    trim = FALSE,
+    alpha = 0.8,
+    linewidth = 0.4
+  ) +
+  
+  geom_boxplot(
+    width = 0.12,
+    outlier.shape = NA,
+    fill = "white"
+  ) +
+  
+  geom_jitter(
+    width = 0.12,
+    size = 0.15,
+    alpha = 0.15
+  ) +
+  
+  theme_classic(base_size = 14) +
+  
+  theme(
+    axis.text.x = element_text(
+      angle = 25,
+      hjust = 1
+    ),
+    legend.position = "none"
+  ) +
+  
+  labs(
+    x = "",
+    y = "Pseudotime"
+  )
+
+p_clone_pt
+
+
+kruskal.test(
+  pseudotime ~ clonotype_group,
+  data = meta2
+)
+
+
+# Kruskal-Wallis rank sum test
+
+meta2 %>%
+  group_by(clonotype_group) %>%
+  summarise(
+    n_cells = n(),
+    median_pseudotime = median(pseudotime),
+    mean_pseudotime = mean(pseudotime),
+    sd_pseudotime = sd(pseudotime)
+  )
+
+library(rstatix)
+library(ggpubr)
+
+stat_test<-pairwise_wilcox_test(
+  meta2,
+  pseudotime ~ clonotype_group,
+  p.adjust.method = "BH"
+)
+
+stat_test <- stat_test %>%
+  mutate(
+    y.position = c(30, 32, 34, 36, 38, 40)
+  )
+
+
+p_clone_pt <- ggplot(
+  meta2,
+  aes(
+    x = clonotype_group,
+    y = pseudotime,
+    fill = clonotype_group
+  )
+) +
+  
+  geom_violin(
+    trim = FALSE,
+    alpha = 0.8,
+    linewidth = 0.4
+  ) +
+  
+  geom_boxplot(
+    width = 0.12,
+    outlier.shape = NA,
+    fill = "white"
+  ) +
+  
+  stat_summary(
+    fun = median,
+    geom = "point",
+    size = 2,
+    color = "black"
+  ) +
+  
+  stat_pvalue_manual(
+    stat_test,
+    label = "p.adj",
+    tip.length = 0.01,
+    hide.ns = TRUE
+  ) +
+  
+  theme_classic(base_size = 14) +
+  
+  theme(
+    axis.text.x = element_text(
+      angle = 25,
+      hjust = 1
+    ),
+    legend.position = "none"
+  ) +
+  
+  labs(
+    x = "",
+    y = "Pseudotime"
+  )
+
+p_clone_pt
