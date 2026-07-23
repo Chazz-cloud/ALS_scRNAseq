@@ -1,4 +1,4 @@
-multi_config_P29_CSF.csv
+multi_config_CSF.csv
 
 [gene-expression]
 reference	/sw/data/Chromium/cellranger-data/2020-A/refdata-gex-GRCh38-2020-A	
@@ -22,9 +22,9 @@ P36009_1004	/proj/path	VDJ-T
 #SBATCH -A project
 #SBATCH -p core -n 16
 #SBATCH -t 00-02:00:00
-#SBATCH -J zhenz_P29_CSF
-#SBATCH -e zhenz_P29_CSF_SLURM_Job_id_%j.sderr
-#SBATCH -o zhenz_P29_CSF_SLURM_Job_id_%j.sdout
+#SBATCH -J zhenz_CSF
+#SBATCH -e zhenz_CSF_SLURM_Job_id_%j.sderr
+#SBATCH -o zhenz_CSF_SLURM_Job_id_%j.sdout
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=#
 
@@ -33,5 +33,5 @@ module load bioinfo-tools cellranger/7.0.1
 cd /proj/path
 
 cellranger multi \
---id=P29_CSF_multi \
---csv=/proj/path/multi_config_P29_CSF.csv
+--id=CSF_multi \
+--csv=/proj/path/multi_config_CSF.csv
